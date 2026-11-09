@@ -48,9 +48,10 @@ struct OrbitCubeApp: App {
                                 Button("Copy Wi-Fi Password") {
                                     UIPasteboard.general.string = status.password
                                 }
-                                Text("Join the Wi-Fi network shown on your display (TITA-Clip for TITA Pro), then open the Clip page.")
+                                Text("Join the Wi-Fi shown on your display (TITA-Clip or Orbit-Clip), then return here.")
                                     .foregroundStyle(.secondary)
-                                Link("Open Clip Page", destination: URL(string: "http://192.168.9.1")!)
+                                ClipVideoPicker(parked: status.park == .ready)
+                                Link("Open in Safari", destination: URL(string: "http://192.168.9.1")!)
                             }
                         }
                     }
