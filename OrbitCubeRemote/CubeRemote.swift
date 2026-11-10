@@ -95,7 +95,7 @@ final class CubeRemote: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     func setClip(open: Bool) {
         guard !busy, let cube, let commandCharacteristic, let status else { return }
-        guard !open || status.park == .ready else { return }
+        guard !open || status.park != .needsPark else { return }
         let id = status.requestID &+ 1
         pendingRequest = id
         requestDeadline = Date().addingTimeInterval(10)

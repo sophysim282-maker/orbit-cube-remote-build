@@ -34,7 +34,7 @@ struct OrbitCubeApp: App {
                             LabeledContent("Clip", value: clipLabel(status.clip))
                             if status.clip == .closed {
                                 Button("Open Orbit Clip") { remote.setClip(open: true) }
-                                    .disabled(remote.busy || status.park != .ready)
+                                    .disabled(remote.busy || status.park == .needsPark)
                             } else {
                                 Button("Close Orbit Clip") { remote.setClip(open: false) }
                                     .disabled(remote.busy)
@@ -50,7 +50,7 @@ struct OrbitCubeApp: App {
                                 }
                                 Text("Join the Wi-Fi shown on your display (TITA-Clip or Orbit-Clip), then return here.")
                                     .foregroundStyle(.secondary)
-                                ClipVideoPicker(parked: status.park == .ready)
+                                ClipVideoPicker(parked: status.park != .needsPark)
                                 Link("Open in Safari", destination: URL(string: "http://192.168.9.1")!)
                             }
                         }
@@ -64,8 +64,8 @@ struct OrbitCubeApp: App {
     private func parkLabel(_ park: CubeStatus.Park) -> String {
         switch park {
         case .ready: return "Parked and ready"
-        case .waitingForData: return "Waiting for live data"
-        case .needsPark: return "Park and stop"
+        case .waitingForData: return "No car data (Clip allowed)"
+        case .needsPark: return "Car is moving: stop first"
         }
     }
 
