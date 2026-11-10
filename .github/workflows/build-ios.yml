@@ -26,15 +26,23 @@ jobs:
           set -euo pipefail
           xcodebuild -version
           app_dir="$RUNNER_TEMP/orbit-build"
-          xcodebuild -project OrbitCubeRemote.xcodeproj -target OrbitCubeRemote \
+          log="$RUNNER_TEMP/xcodebuild.log"
+          if ! xcodebuild -project OrbitCubeRemote.xcodeproj -target OrbitCubeRemote \
             -configuration Release -sdk iphoneos \
             "CONFIGURATION_BUILD_DIR=$app_dir" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build > "$log" 2>&1; then
+            tail -n 300 "$log"
+            { grep -E "error:" "$log" || true; } | sort -u | head -n 20 |
+              while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi
+          tail -n 15 "$log"
+          trap 'echo "::error::Packaging failed at: $BASH_COMMAND"' ERR
           app="$app_dir/OrbitCubeRemote.app"
           test -x "$app/OrbitCubeRemote"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = com.orbitcube.prismremote
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$app/Info.plist")" = iPhoneOS
-          xcrun lipo -verify_arch arm64 "$app/OrbitCubeRemote"
+          xcrun lipo "$app/OrbitCubeRemote" -verify_arch arm64
           xcrun vtool -show-build "$app/OrbitCubeRemote"
           cd "$RUNNER_TEMP"
           mkdir Payload
