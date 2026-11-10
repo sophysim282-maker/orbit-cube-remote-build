@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreTransferable
+import Network
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -96,8 +97,8 @@ struct ClipVideoPicker: View {
 
 private enum ClipStream {
     private static let side = 80
-    private static let endpoint = URL(string: "http://192.168.9.1/frame")!
 
+    @MainActor
     static func play(_ url: URL, onFirstFrame: () -> Void) async throws {
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration).seconds
@@ -107,37 +108,35 @@ private enum ClipStream {
         images.maximumSize = CGSize(width: 320, height: 320)
         images.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 30)
         images.requestedTimeToleranceAfter = .zero
-        let config = URLSessionConfiguration.ephemeral
-        config.allowsCellularAccess = false
-        config.timeoutIntervalForRequest = 4
-        let session = URLSession(configuration: config)
-        defer { session.invalidateAndCancel() }
 
         let interval = 0.16
         var position = 0.0
+        var first = true
         while position < duration {
             try Task.checkCancellation()
             let start = DispatchTime.now().uptimeNanoseconds
             let frame = try await images.image(at: CMTime(seconds: position, preferredTimescale: 600)).image
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "POST"
-            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try frameBytes(frame)
-            let data: Data
-            let response: URLResponse
+            let bytes = try frameBytes(frame)
+            let reply: DisplayReply
             do {
-                (data, response) = try await session.data(for: request)
-            } catch let error as URLError where error.code != .cancelled {
-                throw ClipError.message("Cannot reach the display. Stay on its Clip Wi-Fi and allow Local Network access for Orbit Cube in iPhone Settings.")
+                // The first frame waits longer so the Local Network prompt can be answered.
+                reply = try await DisplayRequest(path: "/frame", body: bytes, timeout: first ? 20 : 6).run()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as ClipError {
+                throw error
+            } catch {
+                throw ClipError.message("Cannot reach the display over Wi-Fi (\(error.localizedDescription)). Stay on its Clip Wi-Fi and allow Local Network for Orbit Cube in iPhone Settings.")
             }
-            guard let http = response as? HTTPURLResponse else { throw ClipError.message("The display did not reply.") }
-            let detail = String(decoding: data.prefix(160), as: UTF8.self)
-            guard http.statusCode == 200, detail == "OK" else {
-                if http.statusCode == 409 { throw ClipError.message(detail) }
-                if http.statusCode == 403 { throw ClipError.message("Join the Clip Wi-Fi shown on your display.") }
-                throw ClipError.message("The display rejected the frame (HTTP \(http.statusCode)). \(detail)")
+            guard reply.status == 200 else {
+                if reply.status == 409 { throw ClipError.message(reply.detail) }
+                if reply.status == 403 { throw ClipError.message("Join the Clip Wi-Fi shown on your display.") }
+                throw ClipError.message("The display rejected the frame (HTTP \(reply.status)). \(reply.detail)")
             }
-            if position == 0 { onFirstFrame() }
+            if first {
+                first = false
+                onFirstFrame()
+            }
             let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
             if elapsed < interval {
                 try await Task.sleep(nanoseconds: UInt64((interval - elapsed) * 1_000_000_000))
@@ -176,5 +175,139 @@ private enum ClipError: LocalizedError {
     case message(String)
     var errorDescription: String? {
         switch self { case .message(let text): return text }
+    }
+}
+
+private struct DisplayReply {
+    let status: Int
+    let detail: String
+}
+
+/// One HTTP POST to the display, sent straight over the Wi-Fi interface.
+/// iOS keeps mobile data as its main route while the Clip Wi-Fi has no internet,
+/// so the connection is pinned to Wi-Fi instead of following the system route.
+private final class DisplayRequest: @unchecked Sendable {
+    private static let address = "192.168.9.1"
+    private static let separator = Data("\r\n\r\n".utf8)
+
+    private let connection: NWConnection
+    private let payload: Data
+    private let timeout: TimeInterval
+    private let queue = DispatchQueue(label: "com.orbitcube.display")
+    private var received = Data()
+    private var lastProblem: Error?
+    private var continuation: CheckedContinuation<DisplayReply, Error>?
+    private var finished = false
+
+    init(path: String, body: Data, timeout: TimeInterval) {
+        let tcp = NWProtocolTCP.Options()
+        tcp.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        parameters.requiredInterfaceType = .wifi
+        parameters.prohibitedInterfaceTypes = [.cellular]
+        parameters.preferNoProxies = true
+        connection = NWConnection(host: NWEndpoint.Host(Self.address), port: 80, using: parameters)
+        let head = "POST \(path) HTTP/1.1\r\nHost: \(Self.address)\r\n" +
+            "Content-Type: application/octet-stream\r\nContent-Length: \(body.count)\r\n" +
+            "Connection: close\r\n\r\n"
+        var request = Data(head.utf8)
+        request.append(body)
+        payload = request
+        self.timeout = timeout
+    }
+
+    func run() async throws -> DisplayReply {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<DisplayReply, Error>) in
+                queue.async {
+                    if self.finished {
+                        waiter.resume(throwing: CancellationError())
+                    } else {
+                        self.continuation = waiter
+                        self.start()
+                    }
+                }
+            }
+        } onCancel: {
+            queue.async { self.finish(.failure(CancellationError())) }
+        }
+    }
+
+    private func start() {
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                self.connection.send(content: self.payload, completion: .contentProcessed { error in
+                    if let error { self.finish(.failure(error)) }
+                })
+                self.receive()
+            case .waiting(let error):
+                self.lastProblem = error
+            case .failed(let error):
+                self.finish(.failure(error))
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + timeout) {
+            if let problem = self.lastProblem {
+                self.finish(.failure(problem))
+            } else {
+                self.finish(.failure(ClipError.message("The display did not answer in time. Stay on its Clip Wi-Fi and keep the phone close to the display.")))
+            }
+        }
+    }
+
+    private func receive() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, isComplete, error in
+            if let data { self.received.append(data) }
+            if isComplete || self.replyIsComplete() {
+                self.finish(Result { try self.parseReply() })
+            } else if let error {
+                self.finish(.failure(error))
+            } else {
+                self.receive()
+            }
+        }
+    }
+
+    private func headerEnd() -> Range<Data.Index>? {
+        received.range(of: Self.separator)
+    }
+
+    private func replyIsComplete() -> Bool {
+        guard let end = headerEnd() else { return false }
+        let head = String(decoding: received[received.startIndex..<end.lowerBound], as: UTF8.self)
+        for line in head.components(separatedBy: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, parts[0].lowercased() == "content-length",
+               let length = Int(parts[1].trimmingCharacters(in: .whitespaces)) {
+                return received.distance(from: end.upperBound, to: received.endIndex) >= length
+            }
+        }
+        return false
+    }
+
+    private func parseReply() throws -> DisplayReply {
+        guard let end = headerEnd() else {
+            throw ClipError.message("The display closed the connection without a reply.")
+        }
+        let head = String(decoding: received[received.startIndex..<end.lowerBound], as: UTF8.self)
+        let words = head.split(separator: " ", maxSplits: 2)
+        guard words.count >= 2, let status = Int(words[1]) else {
+            throw ClipError.message("The display sent a reply this app does not understand.")
+        }
+        let body = received[end.upperBound..<received.endIndex].prefix(160)
+        return DisplayReply(status: status, detail: String(decoding: body, as: UTF8.self))
+    }
+
+    private func finish(_ result: Result<DisplayReply, Error>) {
+        guard !finished else { return }
+        finished = true
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+        continuation?.resume(with: result)
+        continuation = nil
     }
 }

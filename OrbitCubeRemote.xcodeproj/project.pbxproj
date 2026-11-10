@@ -109,7 +109,7 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 2;
+                CURRENT_PROJECT_VERSION = 3;
                 GENERATE_INFOPLIST_FILE = YES;
                 INFOPLIST_FILE = OrbitCubeRemote/NetworkPermissions.plist;
                 INFOPLIST_KEY_CFBundleDisplayName = "Orbit Cube";
@@ -117,7 +117,7 @@
                 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
                 INFOPLIST_KEY_UILaunchScreen_Generation = YES;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 1.1;
+                MARKETING_VERSION = 1.2;
                 PRODUCT_BUNDLE_IDENTIFIER = com.orbitcube.prismremote;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -130,7 +130,7 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 2;
+                CURRENT_PROJECT_VERSION = 3;
                 GENERATE_INFOPLIST_FILE = YES;
                 INFOPLIST_FILE = OrbitCubeRemote/NetworkPermissions.plist;
                 INFOPLIST_KEY_CFBundleDisplayName = "Orbit Cube";
@@ -138,7 +138,7 @@
                 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
                 INFOPLIST_KEY_UILaunchScreen_Generation = YES;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 1.1;
+                MARKETING_VERSION = 1.2;
                 PRODUCT_BUNDLE_IDENTIFIER = com.orbitcube.prismremote;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

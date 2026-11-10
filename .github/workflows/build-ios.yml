@@ -42,6 +42,10 @@ jobs:
           test -x "$app/OrbitCubeRemote"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = com.orbitcube.prismremote
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$app/Info.plist")" = iPhoneOS
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSBluetoothAlwaysUsageDescription' "$app/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' "$app/Info.plist")" = true
           xcrun lipo "$app/OrbitCubeRemote" -verify_arch arm64
           xcrun vtool -show-build "$app/OrbitCubeRemote"
           cd "$RUNNER_TEMP"
